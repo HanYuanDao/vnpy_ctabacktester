@@ -11,7 +11,7 @@ from vnpy.trader.ui import QtCore, QtWidgets, QtGui
 from vnpy.trader.ui.widget import BaseMonitor, BaseCell, DirectionCell, EnumCell
 from vnpy.trader.ui.editor import CodeEditor
 from vnpy.event import Event, EventEngine
-from vnpy.chart import ChartWidget, CandleItem, VolumeItem
+from vnpy.chart import ChartWidget, CandleItem, VolumeItem, TickLineItem, TickVolumeItem
 from vnpy.trader.utility import load_json, save_json
 from vnpy.trader.database import DB_TZ
 
@@ -127,6 +127,10 @@ class BacktesterManager(QtWidgets.QWidget):
         self.candle_button.clicked.connect(self.show_candle_chart)
         self.candle_button.setEnabled(False)
 
+        self.tick_line_button = QtWidgets.QPushButton("tick成交价图表")
+        self.tick_line_button.clicked.connect(self.show_tick_line_chart)
+        self.tick_line_button.setEnabled(False)
+
         edit_button = QtWidgets.QPushButton("代码编辑")
         edit_button.clicked.connect(self.edit_strategy_code)
 
@@ -142,6 +146,7 @@ class BacktesterManager(QtWidgets.QWidget):
             self.trade_button,
             self.daily_button,
             self.candle_button,
+            self.tick_line_button,
             edit_button,
             reload_button
         ]:
@@ -165,6 +170,7 @@ class BacktesterManager(QtWidgets.QWidget):
         result_grid.addWidget(self.order_button, 0, 1)
         result_grid.addWidget(self.daily_button, 1, 0)
         result_grid.addWidget(self.candle_button, 1, 1)
+        result_grid.addWidget(self.tick_line_button, 2, 0)
 
         left_vbox = QtWidgets.QVBoxLayout()
         left_vbox.addLayout(form)
@@ -209,6 +215,9 @@ class BacktesterManager(QtWidgets.QWidget):
 
         # Candle Chart
         self.candle_dialog = CandleChartDialog()
+
+        # Tick Line Chart
+        self.tick_line_dialog = TickLineDialog()
 
         # Layout
         vbox = QtWidgets.QVBoxLayout()
@@ -295,8 +304,11 @@ class BacktesterManager(QtWidgets.QWidget):
 
         # Tick data can not be displayed using candle chart
         interval = self.interval_combo.currentText()
-        if interval != Interval.TICK.value:
-            self.candle_button.setEnabled(True)
+        # if interval != Interval.TICK.value:
+        #     self.candle_button.setEnabled(True)
+        self.candle_button.setEnabled(True)
+
+        self.tick_line_button.setEnabled(True)
 
     def process_optimization_finished_event(self, event: Event):
         """"""
@@ -379,11 +391,13 @@ class BacktesterManager(QtWidgets.QWidget):
             self.order_button.setEnabled(False)
             self.daily_button.setEnabled(False)
             self.candle_button.setEnabled(False)
+            self.tick_line_button.setEnabled(False)
 
             self.trade_dialog.clear_data()
             self.order_dialog.clear_data()
             self.daily_dialog.clear_data()
             self.candle_dialog.clear_data()
+            self.tick_line_dialog.clear_data()
 
     def start_optimization(self):
         """"""
@@ -505,6 +519,17 @@ class BacktesterManager(QtWidgets.QWidget):
             self.candle_dialog.update_trades(trades)
 
         self.candle_dialog.exec_()
+
+    def show_tick_line_chart(self):
+        """"""
+        if not self.tick_line_dialog.is_updated():
+            history = self.backtester_engine.get_history_data()
+            self.tick_line_dialog.update_history(history)
+
+            trades = self.backtester_engine.get_all_trades()
+            self.tick_line_dialog.update_trades(trades)
+
+        self.tick_line_dialog.exec_()
 
     def edit_strategy_code(self):
         """"""
@@ -1382,6 +1407,227 @@ class CandleChartDialog(QtWidgets.QDialog):
 
         self.dt_ix_map.clear()
         self.ix_bar_map.clear()
+
+    def is_updated(self):
+        """"""
+        return self.updated
+
+
+class TickLineDialog(QtWidgets.QDialog):
+    """
+    """
+
+    def __init__(self):
+        """"""
+        super().__init__()
+
+        self.updated = False
+
+        self.dt_ix_map = {}
+        self.ix_tick_map = {}
+
+        self.high_price = 0
+        self.low_price = 0
+        self.price_range = 0
+
+        self.items = []
+
+        self.init_ui()
+
+    def init_ui(self):
+        """"""
+        self.setWindowTitle("回测成交价Tick线图表")
+        self.resize(1400, 800)
+
+        # Create chart widget
+        self.chart = ChartWidget()
+        self.chart.add_plot("tickLine", hide_x_axis=True)
+        self.chart.add_plot("volume", maximum_height=200)
+        self.chart.add_item(TickLineItem, "tickLine", "tickLine")
+        self.chart.add_item(TickVolumeItem, "volume", "volume")
+        self.chart.add_cursor()
+
+        # Create help widget
+        text1 = "红色虚线 —— 盈利交易"
+        label1 = QtWidgets.QLabel(text1)
+        label1.setStyleSheet("color:red")
+
+        text2 = "绿色虚线 —— 亏损交易"
+        label2 = QtWidgets.QLabel(text2)
+        label2.setStyleSheet("color:#00FF00")
+
+        text3 = "黄色向上箭头 —— 买入开仓 Buy"
+        label3 = QtWidgets.QLabel(text3)
+        label3.setStyleSheet("color:yellow")
+
+        text4 = "黄色向下箭头 —— 卖出平仓 Sell"
+        label4 = QtWidgets.QLabel(text4)
+        label4.setStyleSheet("color:yellow")
+
+        text5 = "紫红向下箭头 —— 卖出开仓 Short"
+        label5 = QtWidgets.QLabel(text5)
+        label5.setStyleSheet("color:magenta")
+
+        text6 = "紫红向上箭头 —— 买入平仓 Cover"
+        label6 = QtWidgets.QLabel(text6)
+        label6.setStyleSheet("color:magenta")
+
+        hbox1 = QtWidgets.QHBoxLayout()
+        hbox1.addStretch()
+        hbox1.addWidget(label1)
+        hbox1.addStretch()
+        hbox1.addWidget(label2)
+        hbox1.addStretch()
+
+        hbox2 = QtWidgets.QHBoxLayout()
+        hbox2.addStretch()
+        hbox2.addWidget(label3)
+        hbox2.addStretch()
+        hbox2.addWidget(label4)
+        hbox2.addStretch()
+
+        hbox3 = QtWidgets.QHBoxLayout()
+        hbox3.addStretch()
+        hbox3.addWidget(label5)
+        hbox3.addStretch()
+        hbox3.addWidget(label6)
+        hbox3.addStretch()
+
+        # Set layout
+        vbox = QtWidgets.QVBoxLayout()
+        vbox.addWidget(self.chart)
+        vbox.addLayout(hbox1)
+        vbox.addLayout(hbox2)
+        vbox.addLayout(hbox3)
+        self.setLayout(vbox)
+
+    def update_history(self, history: list):
+        """"""
+        self.updated = True
+        self.chart.update_history(history)
+
+        for ix, tick in enumerate(history):
+            self.ix_tick_map[ix] = tick
+            self.dt_ix_map[tick.datetime] = ix
+
+            if not self.high_price:
+                self.high_price = tick.ask_price_5
+                self.low_price = tick.bid_price_5
+            else:
+                self.high_price = max(self.high_price, tick.ask_price_5)
+                self.low_price = min(self.low_price, tick.bid_price_5)
+
+        self.price_range = self.high_price - self.low_price
+
+    def update_trades(self, trades: list):
+        """"""
+        trade_pairs = generate_trade_pairs(trades)
+
+        candle_plot = self.chart.get_plot("tickLine")
+
+        scatter_data = []
+
+        y_adjustment = self.price_range * 0.001
+
+        for d in trade_pairs:
+            open_ix = self.dt_ix_map[d["open_dt"]]
+            close_ix = self.dt_ix_map[d["close_dt"]]
+            open_price = d["open_price"]
+            close_price = d["close_price"]
+
+            # Trade Line
+            x = [open_ix, close_ix]
+            y = [open_price, close_price]
+
+            if d["direction"] == Direction.LONG and close_price >= open_price:
+                color = "r"
+            elif d["direction"] == Direction.SHORT and close_price <= open_price:
+                color = "r"
+            else:
+                color = "g"
+
+            pen = pg.mkPen(color, width=1.5, style=QtCore.Qt.DashLine)
+            item = pg.PlotCurveItem(x, y, pen=pen)
+
+            self.items.append(item)
+            candle_plot.addItem(item)
+
+            # Trade Scatter
+            open_tick = self.ix_tick_map[open_ix]
+            close_tick = self.ix_tick_map[close_ix]
+
+            if d["direction"] == Direction.LONG:
+                scatter_color = "yellow"
+                open_symbol = "t1"
+                close_symbol = "t"
+                open_side = 1
+                close_side = -1
+                open_y = open_tick.bid_price_5
+                close_y = close_tick.ask_price_5
+            else:
+                scatter_color = "magenta"
+                open_symbol = "t"
+                close_symbol = "t1"
+                open_side = -1
+                close_side = 1
+                open_y = open_tick.ask_price_5
+                close_y = close_tick.bid_price_5
+
+            pen = pg.mkPen(QtGui.QColor(scatter_color))
+            brush = pg.mkBrush(QtGui.QColor(scatter_color))
+            size = 10
+
+            open_scatter = {
+                "pos": (open_ix, open_y - open_side * y_adjustment),
+                "size": size,
+                "pen": pen,
+                "brush": brush,
+                "symbol": open_symbol
+            }
+
+            close_scatter = {
+                "pos": (close_ix, close_y - close_side * y_adjustment),
+                "size": size,
+                "pen": pen,
+                "brush": brush,
+                "symbol": close_symbol
+            }
+
+            scatter_data.append(open_scatter)
+            scatter_data.append(close_scatter)
+
+            # Trade text
+            volume = d["volume"]
+            text_color = QtGui.QColor(scatter_color)
+            open_text = pg.TextItem(f"[{volume}]", color=text_color, anchor=(0.5, 0.5))
+            close_text = pg.TextItem(f"[{volume}]", color=text_color, anchor=(0.5, 0.5))
+
+            open_text.setPos(open_ix, open_y - open_side * y_adjustment * 3)
+            close_text.setPos(close_ix, close_y - close_side * y_adjustment * 3)
+
+            self.items.append(open_text)
+            self.items.append(close_text)
+
+            candle_plot.addItem(open_text)
+            candle_plot.addItem(close_text)
+
+        trade_scatter = pg.ScatterPlotItem(scatter_data)
+        self.items.append(trade_scatter)
+        candle_plot.addItem(trade_scatter)
+
+    def clear_data(self):
+        """"""
+        self.updated = False
+
+        candle_plot = self.chart.get_plot("tickLine")
+        for item in self.items:
+            candle_plot.removeItem(item)
+        self.items.clear()
+
+        self.chart.clear_all()
+
+        self.dt_ix_map.clear()
+        self.ix_tick_map.clear()
 
     def is_updated(self):
         """"""
