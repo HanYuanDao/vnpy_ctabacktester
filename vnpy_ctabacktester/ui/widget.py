@@ -1,6 +1,5 @@
 import csv
 from datetime import datetime, timedelta
-from copy import copy
 
 import numpy as np
 import pyqtgraph as pg
@@ -14,6 +13,7 @@ from vnpy.event import Event, EventEngine
 from vnpy.chart import ChartWidget, CandleItem, VolumeItem, TickLineItem, TickVolumeItem
 from vnpy.trader.utility import load_json, save_json
 from vnpy.trader.database import DB_TZ
+from vnpy.chart.manager import TickManager
 
 from ..engine import (
     APP_NAME,
@@ -515,7 +515,7 @@ class BacktesterManager(QtWidgets.QWidget):
             history = self.backtester_engine.get_history_data()
             self.candle_dialog.update_history(history)
 
-            trades = self.backtester_engine.get_all_trades()
+            trades = self.backtester_engine.generate_trade_pairs()
             self.candle_dialog.update_trades(trades)
 
         self.candle_dialog.exec_()
@@ -526,8 +526,11 @@ class BacktesterManager(QtWidgets.QWidget):
             history = self.backtester_engine.get_history_data()
             self.tick_line_dialog.update_history(history)
 
-            trades = self.backtester_engine.get_all_trades()
+            trades = self.backtester_engine.generate_trade_pairs()
             self.tick_line_dialog.update_trades(trades)
+
+            trade_intentions = self.backtester_engine.get_all_trade_intentions()
+            self.tick_line_dialog.update_trade_intentions(trade_intentions)
 
         self.tick_line_dialog.exec_()
 
@@ -589,7 +592,8 @@ class StatisticsMonitor(QtWidgets.QTableWidget):
         "daily_return": "日均收益率",
         "return_std": "收益标准差",
         "sharpe_ratio": "夏普比率",
-        "return_drawdown_ratio": "收益回撤比"
+        "return_drawdown_ratio": "收益回撤比",
+        "success_rate": "交易回合胜率"
     }
 
     def __init__(self):
@@ -643,6 +647,7 @@ class StatisticsMonitor(QtWidgets.QTableWidget):
         data["return_std"] = f"{data['return_std']:,.2f}%"
         data["sharpe_ratio"] = f"{data['sharpe_ratio']:,.2f}"
         data["return_drawdown_ratio"] = f"{data['return_drawdown_ratio']:,.2f}"
+        data["success_rate"] = f"{data['success_rate']:,.2f}"
 
         for key, cell in self.cells.items():
             value = data.get(key, "")
@@ -859,6 +864,7 @@ class OptimizationSettingEditor(QtWidgets.QDialog):
         "总收益率": "total_return",
         "夏普比率": "sharpe_ratio",
         "收益回撤比": "return_drawdown_ratio",
+        "交易回合胜率": "success_rate",
         "日均盈亏": "daily_net_pnl"
     }
 
@@ -1298,9 +1304,8 @@ class CandleChartDialog(QtWidgets.QDialog):
 
         self.price_range = self.high_price - self.low_price
 
-    def update_trades(self, trades: list):
+    def update_trades(self, trade_pairs: list):
         """"""
-        trade_pairs = generate_trade_pairs(trades)
 
         candle_plot = self.chart.get_plot("candle")
 
@@ -1440,7 +1445,7 @@ class TickLineDialog(QtWidgets.QDialog):
         self.resize(1400, 800)
 
         # Create chart widget
-        self.chart = ChartWidget()
+        self.chart = ChartWidget(data_manager_class=TickManager)
         self.chart.add_plot("tickLine", hide_x_axis=True)
         self.chart.add_plot("volume", maximum_height=200)
         self.chart.add_item(TickLineItem, "tickLine", "tickLine")
@@ -1519,10 +1524,8 @@ class TickLineDialog(QtWidgets.QDialog):
 
         self.price_range = self.high_price - self.low_price
 
-    def update_trades(self, trades: list):
+    def update_trades(self, trade_pairs: list):
         """"""
-        trade_pairs = generate_trade_pairs(trades)
-
         candle_plot = self.chart.get_plot("tickLine")
 
         scatter_data = []
@@ -1539,9 +1542,7 @@ class TickLineDialog(QtWidgets.QDialog):
             x = [open_ix, close_ix]
             y = [open_price, close_price]
 
-            if d["direction"] == Direction.LONG and close_price >= open_price:
-                color = "r"
-            elif d["direction"] == Direction.SHORT and close_price <= open_price:
+            if d["profit_round"]:
                 color = "r"
             else:
                 color = "g"
@@ -1599,8 +1600,14 @@ class TickLineDialog(QtWidgets.QDialog):
             # Trade text
             volume = d["volume"]
             text_color = QtGui.QColor(scatter_color)
-            open_text = pg.TextItem(f"[{volume}]", color=text_color, anchor=(0.5, 0.5))
-            close_text = pg.TextItem(f"[{volume}]", color=text_color, anchor=(0.5, 0.5))
+            trade_memo_open = d["trade_memo_open"]
+            trade_memo_close = d["trade_memo_close"]
+            if d["direction"] == Direction.LONG:
+                open_text = pg.TextItem(f"[{volume}:{trade_memo_open}]", color=text_color, anchor=(0.5, -0.5))
+                close_text = pg.TextItem(f"[{volume}:{trade_memo_close}]", color=text_color, anchor=(0.5, 1.5))
+            else:
+                open_text = pg.TextItem(f"[{volume}:{trade_memo_open}]", color=text_color, anchor=(0.5, 1.5))
+                close_text = pg.TextItem(f"[{volume}:{trade_memo_close}]", color=text_color, anchor=(0.5, -0.5))
 
             open_text.setPos(open_ix, open_y - open_side * y_adjustment * 3)
             close_text.setPos(close_ix, close_y - close_side * y_adjustment * 3)
@@ -1610,6 +1617,56 @@ class TickLineDialog(QtWidgets.QDialog):
 
             candle_plot.addItem(open_text)
             candle_plot.addItem(close_text)
+
+        trade_scatter = pg.ScatterPlotItem(scatter_data)
+        self.items.append(trade_scatter)
+        candle_plot.addItem(trade_scatter)
+
+    def update_trade_intentions(self, trade_intentions: list):
+        """"""
+        candle_plot = self.chart.get_plot("tickLine")
+
+        scatter_data = []
+
+        y_adjustment = self.price_range * 0.002
+
+        for d in trade_intentions:
+            open_ix = self.dt_ix_map[d["dt"]]
+
+            # Trade Scatter
+            open_tick = self.ix_tick_map[open_ix]
+
+            scatter_color = "blank"
+            open_symbol = "t"
+            close_symbol = "t1"
+            open_side = -1
+            close_side = 1
+            open_y = open_tick.ask_price_1
+
+            pen = pg.mkPen(QtGui.QColor(255, 255, 255))
+            brush = pg.mkBrush(QtGui.QColor(255, 255, 255))
+            size = 10
+
+            open_scatter = {
+                "pos": (open_ix, open_y - open_side * y_adjustment),
+                "size": size,
+                "pen": pen,
+                "brush": brush,
+                "symbol": open_symbol
+            }
+
+            scatter_data.append(open_scatter)
+
+            # Trade text
+            text_color = QtGui.QColor(255, 255, 255)
+            trade_intention_memo = d["memo"]
+            open_text = pg.TextItem(f"[{trade_intention_memo}]", color=text_color, anchor=(0.5, -0.5))
+
+            open_text.setPos(open_ix, open_y - open_side * y_adjustment * 3)
+
+            self.items.append(open_text)
+
+            candle_plot.addItem(open_text)
 
         trade_scatter = pg.ScatterPlotItem(scatter_data)
         self.items.append(trade_scatter)
@@ -1632,45 +1689,3 @@ class TickLineDialog(QtWidgets.QDialog):
     def is_updated(self):
         """"""
         return self.updated
-
-
-def generate_trade_pairs(trades: list) -> list:
-    """"""
-    long_trades = []
-    short_trades = []
-    trade_pairs = []
-
-    for trade in trades:
-        trade = copy(trade)
-
-        if trade.direction == Direction.LONG:
-            same_direction = long_trades
-            opposite_direction = short_trades
-        else:
-            same_direction = short_trades
-            opposite_direction = long_trades
-
-        while trade.volume and opposite_direction:
-            open_trade = opposite_direction[0]
-
-            close_volume = min(open_trade.volume, trade.volume)
-            d = {
-                "open_dt": open_trade.datetime,
-                "open_price": open_trade.price,
-                "close_dt": trade.datetime,
-                "close_price": trade.price,
-                "direction": open_trade.direction,
-                "volume": close_volume,
-            }
-            trade_pairs.append(d)
-
-            open_trade.volume -= close_volume
-            if not open_trade.volume:
-                opposite_direction.pop(0)
-
-            trade.volume -= close_volume
-
-        if trade.volume:
-            same_direction.append(trade)
-
-    return trade_pairs

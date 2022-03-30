@@ -456,6 +456,12 @@ class BacktesterEngine(BaseEngine):
         """"""
         return self.backtesting_engine.history_data
 
+    def get_all_trade_intentions(self):
+        return self.backtesting_engine.get_all_trade_intentions()
+
+    def generate_trade_pairs(self):
+        return self.backtesting_engine.generate_trade_pairs()
+
     def get_strategy_class_file(self, class_name: str):
         """"""
         strategy_class = self.classes[class_name]
