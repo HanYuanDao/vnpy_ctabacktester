@@ -89,7 +89,8 @@ class BacktesterManager(QtWidgets.QWidget):
             QtCore.QDate.currentDate()
         )
 
-        self.rate_line = QtWidgets.QLineEdit("0.000025")
+        self.rate_money_line = QtWidgets.QLineEdit("0.000025")
+        self.rate_volume_line = QtWidgets.QLineEdit("20")
         self.slippage_line = QtWidgets.QLineEdit("0.2")
         self.size_line = QtWidgets.QLineEdit("300")
         self.pricetick_line = QtWidgets.QLineEdit("0.2")
@@ -158,7 +159,8 @@ class BacktesterManager(QtWidgets.QWidget):
         form.addRow("K线周期", self.interval_combo)
         form.addRow("开始日期", self.start_date_edit)
         form.addRow("结束日期", self.end_date_edit)
-        form.addRow("手续费率", self.rate_line)
+        form.addRow("手续费率（按金额）", self.rate_money_line)
+        form.addRow("手续费率（按手数）", self.rate_volume_line)
         form.addRow("交易滑点", self.slippage_line)
         form.addRow("合约乘数", self.size_line)
         form.addRow("价格跳动", self.pricetick_line)
@@ -254,7 +256,8 @@ class BacktesterManager(QtWidgets.QWidget):
             start_dt = QtCore.QDate.fromString(start_str, "yyyy-MM-dd")
             self.start_date_edit.setDate(start_dt)
 
-        self.rate_line.setText(str(setting["rate"]))
+        self.rate_money_line.setText(str(setting["rate_money"]))
+        self.rate_volume_line.setText(str(setting["rate_volume"]))
         self.slippage_line.setText(str(setting["slippage"]))
         self.size_line.setText(str(setting["size"]))
         self.pricetick_line.setText(str(setting["pricetick"]))
@@ -322,7 +325,8 @@ class BacktesterManager(QtWidgets.QWidget):
         interval = self.interval_combo.currentText()
         start = self.start_date_edit.dateTime().toPyDateTime()
         end = self.end_date_edit.dateTime().toPyDateTime()
-        rate = float(self.rate_line.text())
+        rate_money = float(self.rate_money_line.text())
+        rate_volume = float(self.rate_volume_line.text())
         slippage = float(self.slippage_line.text())
         size = float(self.size_line.text())
         pricetick = float(self.pricetick_line.text())
@@ -349,7 +353,8 @@ class BacktesterManager(QtWidgets.QWidget):
             "vt_symbol": vt_symbol,
             "interval": interval,
             "start": start.strftime("%Y-%m-%d"),
-            "rate": rate,
+            "rate_money": rate_money,
+            "rate_volume": rate_volume,
             "slippage": slippage,
             "size": size,
             "pricetick": pricetick,
@@ -374,7 +379,8 @@ class BacktesterManager(QtWidgets.QWidget):
             interval,
             start,
             end,
-            rate,
+            rate_money,
+            rate_volume,
             slippage,
             size,
             pricetick,
@@ -406,7 +412,8 @@ class BacktesterManager(QtWidgets.QWidget):
         interval = self.interval_combo.currentText()
         start = self.start_date_edit.dateTime().toPyDateTime()
         end = self.end_date_edit.dateTime().toPyDateTime()
-        rate = float(self.rate_line.text())
+        rate_money = float(self.rate_money_line.text())
+        rate_volume = float(self.rate_volume_line.text())
         slippage = float(self.slippage_line.text())
         size = float(self.size_line.text())
         pricetick = float(self.pricetick_line.text())
@@ -432,7 +439,8 @@ class BacktesterManager(QtWidgets.QWidget):
             interval,
             start,
             end,
-            rate,
+            rate_money,
+            rate_volume,
             slippage,
             size,
             pricetick,
@@ -1587,7 +1595,7 @@ class TickLineDialog(QtWidgets.QDialog):
             }
 
             close_scatter = {
-                "pos": (close_ix, close_y - close_side * y_adjustment),
+                "pos": (close_ix, close_y - close_side * y_adjustment * 0.48),
                 "size": size,
                 "pen": pen,
                 "brush": brush,
@@ -1609,8 +1617,8 @@ class TickLineDialog(QtWidgets.QDialog):
                 open_text = pg.TextItem(f"[{volume}:{trade_memo_open}]", color=text_color, anchor=(0.5, 1.5))
                 close_text = pg.TextItem(f"[{volume}:{trade_memo_close}]", color=text_color, anchor=(0.5, -0.5))
 
-            open_text.setPos(open_ix, open_y - open_side * y_adjustment * 3)
-            close_text.setPos(close_ix, close_y - close_side * y_adjustment * 3)
+            open_text.setPos(open_ix, open_y - open_side * y_adjustment * 0.5)
+            close_text.setPos(close_ix, close_y - close_side * y_adjustment * 0.5)
 
             self.items.append(open_text)
             self.items.append(close_text)
@@ -1628,7 +1636,7 @@ class TickLineDialog(QtWidgets.QDialog):
 
         scatter_data = []
 
-        y_adjustment = self.price_range * 0.002
+        y_adjustment = self.price_range * 0.001
 
         for d in trade_intentions:
             open_ix = self.dt_ix_map[d["dt"]]
@@ -1643,26 +1651,26 @@ class TickLineDialog(QtWidgets.QDialog):
             close_side = 1
             open_y = open_tick.ask_price_1
 
-            pen = pg.mkPen(QtGui.QColor(255, 255, 255))
-            brush = pg.mkBrush(QtGui.QColor(255, 255, 255))
+            pen = pg.mkPen(QtGui.QColor(220, 20, 60))
+            brush = pg.mkBrush(QtGui.QColor(220, 20, 60))
             size = 10
 
             open_scatter = {
-                "pos": (open_ix, open_y - open_side * y_adjustment),
+                "pos": (open_ix, open_y - close_side * y_adjustment * 0.28),
                 "size": size,
                 "pen": pen,
                 "brush": brush,
-                "symbol": open_symbol
+                "symbol": close_symbol
             }
 
             scatter_data.append(open_scatter)
 
             # Trade text
-            text_color = QtGui.QColor(255, 255, 255)
+            text_color = QtGui.QColor(220, 20, 60)
             trade_intention_memo = d["memo"]
             open_text = pg.TextItem(f"[{trade_intention_memo}]", color=text_color, anchor=(0.5, -0.5))
 
-            open_text.setPos(open_ix, open_y - open_side * y_adjustment * 3)
+            open_text.setPos(open_ix, open_y - close_side * y_adjustment * 0.33)
 
             self.items.append(open_text)
 
