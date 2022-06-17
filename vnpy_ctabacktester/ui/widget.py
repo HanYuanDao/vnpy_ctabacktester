@@ -4,10 +4,10 @@ from datetime import datetime, timedelta
 import numpy as np
 import pyqtgraph as pg
 
-from vnpy.trader.constant import Interval, Direction, Exchange
+from vnpy.trader.constant import Interval, Direction, ProfitLoss, Exchange
 from vnpy.trader.engine import MainEngine
 from vnpy.trader.ui import QtCore, QtWidgets, QtGui
-from vnpy.trader.ui.widget import BaseMonitor, BaseCell, DirectionCell, EnumCell
+from vnpy.trader.ui.widget import BaseMonitor, BaseCell, DirectionCell, ProfitLossCell, EnumCell
 from vnpy.trader.ui.editor import CodeEditor
 from vnpy.event import Event, EventEngine
 from vnpy.chart import ChartWidget, CandleItem, VolumeItem, TickLineItem, TickVolumeItem
@@ -120,6 +120,10 @@ class BacktesterManager(QtWidgets.QWidget):
         self.trade_button.clicked.connect(self.show_backtesting_trades)
         self.trade_button.setEnabled(False)
 
+        self.trade_pair_button = QtWidgets.QPushButton("回合记录")
+        self.trade_pair_button.clicked.connect(self.show_backtesting_trades_pair)
+        self.trade_pair_button.setEnabled(False)
+
         self.daily_button = QtWidgets.QPushButton("每日盈亏")
         self.daily_button.clicked.connect(self.show_daily_results)
         self.daily_button.setEnabled(False)
@@ -145,6 +149,7 @@ class BacktesterManager(QtWidgets.QWidget):
             self.result_button,
             self.order_button,
             self.trade_button,
+            self.trade_pair_button,
             self.daily_button,
             self.candle_button,
             self.tick_line_button,
@@ -169,10 +174,11 @@ class BacktesterManager(QtWidgets.QWidget):
 
         result_grid = QtWidgets.QGridLayout()
         result_grid.addWidget(self.trade_button, 0, 0)
-        result_grid.addWidget(self.order_button, 0, 1)
-        result_grid.addWidget(self.daily_button, 1, 0)
-        result_grid.addWidget(self.candle_button, 1, 1)
-        result_grid.addWidget(self.tick_line_button, 2, 0)
+        result_grid.addWidget(self.trade_pair_button, 0, 1)
+        result_grid.addWidget(self.order_button, 1, 0)
+        result_grid.addWidget(self.daily_button, 1, 1)
+        result_grid.addWidget(self.candle_button, 2, 0)
+        result_grid.addWidget(self.tick_line_button, 2, 1)
 
         left_vbox = QtWidgets.QVBoxLayout()
         left_vbox.addLayout(form)
@@ -201,6 +207,12 @@ class BacktesterManager(QtWidgets.QWidget):
             self.event_engine,
             "回测成交记录",
             BacktestingTradeMonitor
+        )
+        self.trade_pair_dialog = BacktestingResultDialog(
+            self.main_engine,
+            self.event_engine,
+            "回测成交回合记录",
+            BacktestingTradePairMonitor
         )
         self.order_dialog = BacktestingResultDialog(
             self.main_engine,
@@ -302,6 +314,7 @@ class BacktesterManager(QtWidgets.QWidget):
         self.chart.set_data(df)
 
         self.trade_button.setEnabled(True)
+        self.trade_pair_button.setEnabled(True)
         self.order_button.setEnabled(True)
         self.daily_button.setEnabled(True)
 
@@ -394,12 +407,14 @@ class BacktesterManager(QtWidgets.QWidget):
             self.chart.clear_data()
 
             self.trade_button.setEnabled(False)
+            self.trade_pair_button.setEnabled(False)
             self.order_button.setEnabled(False)
             self.daily_button.setEnabled(False)
             self.candle_button.setEnabled(False)
             self.tick_line_button.setEnabled(False)
 
             self.trade_dialog.clear_data()
+            self.trade_pair_dialog.clear_data()
             self.order_dialog.clear_data()
             self.daily_dialog.clear_data()
             self.candle_dialog.clear_data()
@@ -500,6 +515,14 @@ class BacktesterManager(QtWidgets.QWidget):
             self.trade_dialog.update_data(trades)
 
         self.trade_dialog.exec_()
+
+    def show_backtesting_trades_pair(self):
+        """"""
+        if not self.trade_pair_dialog.is_updated():
+            trade_pairs = self.backtester_engine.generate_trade_pairs()
+            self.trade_pair_dialog.update_data(trade_pairs)
+
+        self.trade_pair_dialog.exec_()
 
     def show_backtesting_orders(self):
         """"""
@@ -1101,6 +1124,25 @@ class BacktestingTradeMonitor(BaseMonitor):
     }
 
 
+class BacktestingTradePairMonitor(BaseMonitor):
+    """
+    Monitor for backtesting trade pair data.
+    """
+
+    headers = {
+        "open_dt": {"display": "开仓时间", "cell": BaseCell, "update": False},
+        "open_price": {"display": "开仓价格", "cell": BaseCell, "update": False},
+        "close_dt": {"display": "锁仓时间", "cell": BaseCell, "update": False},
+        "close_price": {"display": "锁仓价格", "cell": BaseCell, "update": False},
+        "direction": {"display": "方向", "cell": DirectionCell, "update": False},
+        "volume": {"display": "手数", "cell": BaseCell, "update": False},
+        "profit_loss": {"display": "盈亏", "cell": BaseCell, "update": False},
+        "profit_round": {"display": "盈利情况", "cell": ProfitLossCell, "update": False},
+        "trade_memo_open": {"display": "开仓说明", "cell": BaseCell, "update": False},
+        "trade_memo_close": {"display": "锁仓说明", "cell": BaseCell, "update": False},
+    }
+
+
 class BacktestingOrderMonitor(BaseMonitor):
     """
     Monitor for backtesting order data.
@@ -1322,18 +1364,17 @@ class CandleChartDialog(QtWidgets.QDialog):
         y_adjustment = self.price_range * 0.001
 
         for d in trade_pairs:
-            open_ix = self.dt_ix_map[d["open_dt"]]
-            close_ix = self.dt_ix_map[d["close_dt"]]
-            open_price = d["open_price"]
-            close_price = d["close_price"]
-
+            open_ix = self.dt_ix_map[d.open_dt]
+            close_ix = self.dt_ix_map[d.close_dt]
+            open_price = d.open_price
+            close_price = d.close_price
             # Trade Line
             x = [open_ix, close_ix]
             y = [open_price, close_price]
 
-            if d["direction"] == Direction.LONG and close_price >= open_price:
+            if d.direction == Direction.LONG and close_price >= open_price:
                 color = "r"
-            elif d["direction"] == Direction.SHORT and close_price <= open_price:
+            elif d.direction == Direction.SHORT and close_price <= open_price:
                 color = "r"
             else:
                 color = "g"
@@ -1348,7 +1389,7 @@ class CandleChartDialog(QtWidgets.QDialog):
             open_bar = self.ix_bar_map[open_ix]
             close_bar = self.ix_bar_map[close_ix]
 
-            if d["direction"] == Direction.LONG:
+            if d.direction == Direction.LONG:
                 scatter_color = "yellow"
                 open_symbol = "t1"
                 close_symbol = "t"
@@ -1389,7 +1430,7 @@ class CandleChartDialog(QtWidgets.QDialog):
             scatter_data.append(close_scatter)
 
             # Trade text
-            volume = d["volume"]
+            volume = d.volume
             text_color = QtGui.QColor(scatter_color)
             open_text = pg.TextItem(f"[{volume}]", color=text_color, anchor=(0.5, 0.5))
             close_text = pg.TextItem(f"[{volume}]", color=text_color, anchor=(0.5, 0.5))
@@ -1541,16 +1582,16 @@ class TickLineDialog(QtWidgets.QDialog):
         y_adjustment = self.price_range * 0.001
 
         for d in trade_pairs:
-            open_ix = self.dt_ix_map[d["open_dt"]]
-            close_ix = self.dt_ix_map[d["close_dt"]]
-            open_price = d["open_price"]
-            close_price = d["close_price"]
+            open_ix = self.dt_ix_map[d.open_dt]
+            close_ix = self.dt_ix_map[d.close_dt]
+            open_price = d.open_price
+            close_price = d.close_price
 
             # Trade Line
             x = [open_ix, close_ix]
             y = [open_price, close_price]
 
-            if d["profit_round"]:
+            if d.profit_round == ProfitLoss.PROFIT:
                 color = "r"
             else:
                 color = "g"
@@ -1565,7 +1606,7 @@ class TickLineDialog(QtWidgets.QDialog):
             open_tick = self.ix_tick_map[open_ix]
             close_tick = self.ix_tick_map[close_ix]
 
-            if d["direction"] == Direction.LONG:
+            if d.direction == Direction.LONG:
                 scatter_color = "yellow"
                 open_symbol = "t1"
                 close_symbol = "t"
@@ -1606,11 +1647,11 @@ class TickLineDialog(QtWidgets.QDialog):
             scatter_data.append(close_scatter)
 
             # Trade text
-            volume = d["volume"]
+            volume = d.volume
             text_color = QtGui.QColor(scatter_color)
-            trade_memo_open = d["trade_memo_open"]
-            trade_memo_close = d["trade_memo_close"]
-            if d["direction"] == Direction.LONG:
+            trade_memo_open = d.trade_memo_open
+            trade_memo_close = d.trade_memo_close
+            if d.direction == Direction.LONG:
                 open_text = pg.TextItem(f"[{volume}:{trade_memo_open}]", color=text_color, anchor=(0.5, -0.5))
                 close_text = pg.TextItem(f"[{volume}:{trade_memo_close}]", color=text_color, anchor=(0.5, 1.5))
             else:
