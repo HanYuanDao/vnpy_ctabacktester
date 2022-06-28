@@ -514,7 +514,8 @@ class BacktesterManager(QtWidgets.QWidget):
             trades = self.backtester_engine.get_all_trades()
             self.trade_dialog.update_data(trades)
 
-        self.trade_dialog.exec_()
+        # self.trade_dialog.exec_()
+        self.trade_dialog.show()
 
     def show_backtesting_trades_pair(self):
         """"""
@@ -522,7 +523,8 @@ class BacktesterManager(QtWidgets.QWidget):
             trade_pairs = self.backtester_engine.generate_trade_pairs()
             self.trade_pair_dialog.update_data(trade_pairs)
 
-        self.trade_pair_dialog.exec_()
+        # self.trade_pair_dialog.exec_()
+        self.trade_pair_dialog.show()
 
     def show_backtesting_orders(self):
         """"""
@@ -530,7 +532,8 @@ class BacktesterManager(QtWidgets.QWidget):
             orders = self.backtester_engine.get_all_orders()
             self.order_dialog.update_data(orders)
 
-        self.order_dialog.exec_()
+        # self.order_dialog.exec_()
+        self.order_dialog.show()
 
     def show_daily_results(self):
         """"""
@@ -538,7 +541,8 @@ class BacktesterManager(QtWidgets.QWidget):
             results = self.backtester_engine.get_all_daily_results()
             self.daily_dialog.update_data(results)
 
-        self.daily_dialog.exec_()
+        # self.daily_dialog.exec_()
+        self.daily_dialog.show()
 
     def show_candle_chart(self):
         """"""
@@ -549,7 +553,8 @@ class BacktesterManager(QtWidgets.QWidget):
             trades = self.backtester_engine.generate_trade_pairs()
             self.candle_dialog.update_trades(trades)
 
-        self.candle_dialog.exec_()
+        # self.candle_dialog.exec_()
+        self.candle_dialog.show()
 
     def show_tick_line_chart(self):
         """"""
@@ -563,7 +568,8 @@ class BacktesterManager(QtWidgets.QWidget):
             trade_intentions = self.backtester_engine.get_all_trade_intentions()
             self.tick_line_dialog.update_trade_intentions(trade_intentions)
 
-        self.tick_line_dialog.exec_()
+        # self.tick_line_dialog.exec_()
+        self.tick_line_dialog.show()
 
     def edit_strategy_code(self):
         """"""
