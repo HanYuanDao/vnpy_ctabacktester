@@ -784,15 +784,13 @@ class BacktesterChart(pg.GraphicsLayoutWidget):
         if df is None:
             return
 
-        count: int = len(df)
-
         self.dates.clear()
         for n, date in enumerate(df.index):
             self.dates[n] = date
 
         # Set data for curve of balance and drawdown
-        self.balance_curve.setData(df["balance"])
-        self.drawdown_curve.setData(df["drawdown"])
+        self.balance_curve.setData(df["balance"].to_numpy())
+        self.drawdown_curve.setData(df["drawdown"].to_numpy())
 
         # Set data for daily pnl bar
         profit_pnl_x: list = []
@@ -800,7 +798,11 @@ class BacktesterChart(pg.GraphicsLayoutWidget):
         loss_pnl_x: list = []
         loss_pnl_height: list = []
 
-        for count, pnl in enumerate(df["net_pnl"]):
+        net_pnl_values = df["net_pnl"].to_numpy(dtype=float, copy=False)
+
+        for count, pnl in enumerate(net_pnl_values):
+            if not np.isfinite(pnl):
+                continue
             if pnl >= 0:
                 profit_pnl_height.append(pnl)
                 profit_pnl_x.append(count)
@@ -812,9 +814,12 @@ class BacktesterChart(pg.GraphicsLayoutWidget):
         self.loss_pnl_bar.setOpts(x=loss_pnl_x, height=loss_pnl_height)
 
         # Set data for pnl distribution
-        hist, x = np.histogram(df["net_pnl"], bins="auto")
-        x = x[:-1]
-        self.distribution_curve.setData(x, hist)
+        finite_net_pnl = net_pnl_values[np.isfinite(net_pnl_values)]
+        if finite_net_pnl.size:
+            hist, x = np.histogram(finite_net_pnl, bins="auto")
+            self.distribution_curve.setData(x[:-1], hist)
+        else:
+            self.distribution_curve.setData([], [])
 
 
 class DateAxis(pg.AxisItem):
