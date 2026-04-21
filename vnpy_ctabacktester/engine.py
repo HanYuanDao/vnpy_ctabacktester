@@ -92,8 +92,8 @@ class BacktesterEngine(BaseEngine):
         path1: Path = app_path.joinpath("strategies")
         self.load_strategy_class_from_folder(path1, "vnpy_ctastrategy.strategies")
 
-        path2: Path = Path.cwd().joinpath("strategies")
-        self.load_strategy_class_from_folder(path2, "strategies")
+        path2: Path = Path.cwd().joinpath("xinqi_strategies")
+        self.load_strategy_class_from_folder(path2, "xinqi_strategies")
 
     def load_strategy_class_from_folder(self, path: Path, module_name: str = "") -> None:
         """
