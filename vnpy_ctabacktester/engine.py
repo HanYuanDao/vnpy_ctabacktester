@@ -471,6 +471,10 @@ class BacktesterEngine(BaseEngine):
         """"""
         return self.backtesting_engine.get_all_orders()
 
+    def get_all_trade_intentions(self) -> list:
+        """"""
+        return self.backtesting_engine.get_all_trade_intentions()
+
     def get_all_daily_results(self) -> list:
         """"""
         return self.backtesting_engine.get_all_daily_results()
